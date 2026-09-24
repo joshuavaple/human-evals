@@ -35,6 +35,7 @@ Layers: `api/routes` (HTTP only) → `repositories/mlflow_repo.py` → MLflow. `
 - The repository is injected via `app.api.dependencies.get_trace_repository`. Tests replace it with `app.dependency_overrides` and a `FakeMlflowClient` (`tests/unit/fakes.py`) that builds real MLflow `Trace` objects with a root span.
 - List endpoints use `search_traces(include_spans=False)` and return only MLflow's truncated `request_preview`/`response_preview`. The detail endpoint fetches the full trace and returns the root span's inputs/outputs, parsed as JSON when possible.
 - `get_trace` returns 404 for traces outside the configured experiment.
+- **Conversations** are MLflow sessions: traces sharing the `mlflow.trace.session` metadata key. `list_conversations` does the same two steps as `mlflow.search_sessions`, which can't be used because it only works with the global tracking URI. Step 1 scans traces newest first to pick `max_results` conversations (so they're ordered by latest activity). Step 2 fetches each one in full with a `metadata.\`mlflow.trace.session\` = '<id>'` filter, in a thread pool, and is skipped when the scan covered every trace. Turns are sorted oldest first. Traces without a session become single-turn conversations (`session_id = None`). There's no page token (a conversation's turns span trace pages); callers re-request with a larger `max_results`, and `has_more` says whether that would return more.
 
 ### MLflow/Databricks gotchas
 
@@ -49,7 +50,7 @@ Node 20.19+, npm. Run commands from `frontend/`:
 npm install
 npm run dev                  # :5173, proxies /api/* to the backend (BACKEND_URL, default :8000)
 npm test                     # vitest, once
-npx vitest run src/features/traces/lib/conversation.test.ts -t "LangChain"   # single test
+npx vitest run src/features/traces/lib/messages.test.ts -t "LangChain"   # single test
 npm run typecheck && npm run lint && npm run build
 npm run gen:api              # regenerate src/api/schema.d.ts, needs the backend running on :8000
 ```
@@ -60,8 +61,8 @@ Dependency direction: `components` → `hooks` → `api/` → backend, with `lib
 
 - `src/api/schema.d.ts` is **generated** from FastAPI's OpenAPI spec (`openapi-typescript`). Never hand-edit it. After changing backend schemas or routes, run `gen:api` and commit the result. `openapi-typescript` declares a TS 5 peer dependency, so `package.json` has an `overrides` entry to use the project's TS 6.
 - `src/api/traces.ts` has one function per endpoint, using the typed `openapi-fetch` client (base URL `''`, relying on the Vite proxy). Only `api/` makes HTTP calls.
-- `src/features/<feature>/{hooks,components,lib}`: hooks wrap `api/` with TanStack Query (`useInfiniteQuery` for the paginated list, keyed `['traces']`/`['traces', id]`). Components never fetch directly.
-- `features/traces/lib/conversation.ts` normalises agent I/O formats (OpenAI chat and completions, MLflow ResponsesAgent input/output including `function_call` items, LangChain `human`/`ai`/`tool` messages) into `Message[]`. It returns `null` for unknown shapes, and `IOPanel` then shows raw JSON. Add new formats there with a test.
-- Component tests mock `@/api/traces` with `vi.mock` rather than stubbing `fetch`, because the jsdom test environment can't resolve the relative URLs the client uses.
+- `src/features/<feature>/{hooks,components,lib}`: hooks wrap `api/` with TanStack Query (`useConversationList` re-queries with a growing limit using `keepPreviousData`, keyed `['conversations', limit]`; `useTrace` keyed `['traces', id]`). Components never fetch directly.
+- `features/traces/lib/messages.ts` normalises agent I/O formats (OpenAI chat and completions, MLflow ResponsesAgent input/output including `function_call` items, LangChain `human`/`ai`/`tool` messages) into `Message[]`, which `MessageList` renders. "Conversation" in this codebase means an MLflow session (group of traces), not the messages inside one trace. It returns `null` for unknown shapes, and `IOPanel` then shows raw JSON. Add new formats there with a test.
+- Component tests mock `@/api/traces` with `vi.mock` rather than stubbing `fetch`, because the jsdom test environment can't resolve the relative URLs the client uses. Vitest globals are off, so `src/test/setup.ts` registers Testing Library's `cleanup` explicitly.
 - Dark mode is class-based: `@custom-variant dark` in `src/index.css` makes `dark:` classes depend on `.dark` on `<html>`, not the OS setting. `features/theme` toggles the class and saves the choice to localStorage (`theme` key), falling back to `prefers-color-scheme`. An inline script in `index.html` repeats that logic before React loads to avoid a white flash, so keep the two in sync. Every new colour class needs a `dark:` counterpart (e.g. `bg-white dark:bg-slate-900`, `text-slate-500 dark:text-slate-400`, `prose dark:prose-invert`).
 - Import alias `@/` → `src/` (set in both `vite.config.ts` and `tsconfig.app.json`). Styling is Tailwind v4 utility classes, plus `@tailwindcss/typography` (`prose`) for markdown message bodies.
