@@ -5,6 +5,7 @@ import re
 
 from mlflow.entities import (
     Experiment,
+    ExperimentTag,
     Span,
     Trace,
     TraceData,
@@ -13,7 +14,7 @@ from mlflow.entities import (
     TraceState,
 )
 from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
+from mlflow.protos.databricks_pb2 import BAD_REQUEST, RESOURCE_DOES_NOT_EXIST
 from mlflow.store.entities.paged_list import PagedList
 
 
@@ -69,18 +70,51 @@ class FakeMlflowClient:
         experiments: dict[str, str],
         traces: list[Trace],
         missing_trace_error: int = RESOURCE_DOES_NOT_EXIST,
+        deleted: frozenset[str] = frozenset(),
     ):
+        """`experiments` maps workspace path -> numeric ID. An experiment's last update
+        time is its ID, so higher IDs count as more recently updated, and its creator
+        is "owner<ID>@example.com". `deleted` holds paths of deleted experiments."""
         self._missing_trace_error = missing_trace_error
-        self._experiments = experiments  # name -> id
+        self._experiments = {
+            eid: Experiment(
+                eid,
+                name,
+                "",
+                "deleted" if name in deleted else "active",
+                tags=[ExperimentTag("mlflow.ownerEmail", f"owner{eid}@example.com")],
+                last_update_time=int(eid),
+            )
+            for name, eid in experiments.items()
+        }
         self._traces = {t.info.trace_id: t for t in traces}
-        self.experiment_lookups = 0
+        self.get_experiment_calls = 0
         self.search_calls = 0
 
-    def get_experiment_by_name(self, name: str) -> Experiment | None:
-        self.experiment_lookups += 1
-        if name not in self._experiments:
-            return None
-        return Experiment(self._experiments[name], name, "", "active")
+    def search_experiments(self, *, filter_string, max_results, order_by, page_token):
+        # Only the folder filter the repository uses is supported. Like Databricks'
+        # default view, deleted experiments are left out.
+        match = re.fullmatch(r"name LIKE '(.*)%'", filter_string)
+        assert match, f"unsupported filter: {filter_string}"
+        assert order_by == ["last_update_time DESC"]
+        matching = sorted(
+            (
+                e
+                for e in self._experiments.values()
+                if e.name.startswith(match.group(1)) and e.lifecycle_stage == "active"
+            ),
+            key=lambda e: e.last_update_time,
+            reverse=True,
+        )
+        return _page(matching, max_results, page_token)
+
+    def get_experiment(self, experiment_id: str) -> Experiment:
+        self.get_experiment_calls += 1
+        if not experiment_id.isdigit():
+            raise MlflowException("bad id", error_code=BAD_REQUEST)
+        if experiment_id not in self._experiments:
+            raise MlflowException("not found", error_code=RESOURCE_DOES_NOT_EXIST)
+        return self._experiments[experiment_id]
 
     def search_traces(
         self, *, locations, max_results, page_token, order_by, include_spans, filter_string=None
@@ -96,12 +130,15 @@ class FakeMlflowClient:
                 t for t in matching if t.info.trace_metadata.get("mlflow.trace.session") == session
             ]
         matching.sort(key=lambda t: t.info.request_time, reverse=order_by[0].endswith("DESC"))
-        start = int(page_token or 0)
-        end = start + max_results
-        token = str(end) if end < len(matching) else None
-        return PagedList(matching[start:end], token)
+        return _page(matching, max_results, page_token)
 
     def get_trace(self, trace_id: str, display: bool = True) -> Trace:
         if trace_id not in self._traces:
             raise MlflowException("not found", error_code=self._missing_trace_error)
         return self._traces[trace_id]
+
+
+def _page(items: list, max_results: int, page_token: str | None) -> PagedList:
+    start = int(page_token or 0)
+    end = start + max_results
+    return PagedList(items[start:end], str(end) if end < len(items) else None)

@@ -8,8 +8,8 @@ class Settings(BaseSettings):
 
     # Profile in ~/.databrickscfg. U2M auth: log in once with `databricks auth login --profile X`.
     databricks_profile: str
-    # Workspace path of the experiment, e.g. /Users/me@example.com/my-agent
-    experiment_name: str
+    # Workspace folder whose experiments can be browsed, e.g. /Shared or /Users/me@example.com
+    experiment_folder: str = "/Shared"
     cors_origins: list[str] = ["http://localhost:5173"]
 
 
