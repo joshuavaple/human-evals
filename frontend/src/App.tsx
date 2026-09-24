@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { ThemeToggle } from '@/features/theme/components/ThemeToggle'
 import { TraceDetail } from '@/features/traces/components/TraceDetail'
-import { TraceList } from '@/features/traces/components/TraceList'
+import { ConversationList } from '@/features/traces/components/ConversationList'
 
-// Page layout: header, trace list on the left, selected trace on the right.
+// Page layout: header, conversation list on the left, selected trace on the right.
 export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -16,7 +16,7 @@ export default function App() {
       </header>
       <div className="flex min-h-0 flex-1">
         <aside className="w-80 shrink-0 overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <TraceList selectedId={selectedId} onSelect={setSelectedId} />
+          <ConversationList selectedId={selectedId} onSelect={setSelectedId} />
         </aside>
         <main className="min-w-0 flex-1 overflow-hidden p-6">
           {selectedId ? (

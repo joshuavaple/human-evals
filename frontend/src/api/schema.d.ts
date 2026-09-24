@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["list_conversations_api_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -59,6 +76,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Conversation
+         * @description All traces sharing one session ID, oldest turn first.
+         *
+         *     Traces logged without a session ID become single-turn conversations with
+         *     session_id = None, so they still show up.
+         */
+        Conversation: {
+            /** Session Id */
+            session_id: string | null;
+            /** Latest Request Time Ms */
+            latest_request_time_ms: number;
+            /** Traces */
+            traces: components["schemas"]["TraceSummary"][];
+        };
+        /**
+         * ConversationPage
+         * @description Conversations with the most recent activity first.
+         */
+        ConversationPage: {
+            /** Conversations */
+            conversations: components["schemas"]["Conversation"][];
+            /** Has More */
+            has_more: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -71,6 +113,8 @@ export interface components {
         TraceDetail: {
             /** Trace Id */
             trace_id: string;
+            /** Session Id */
+            session_id: string | null;
             /** Request Time Ms */
             request_time_ms: number;
             /** State */
@@ -100,6 +144,8 @@ export interface components {
         TraceSummary: {
             /** Trace Id */
             trace_id: string;
+            /** Session Id */
+            session_id: string | null;
             /** Request Time Ms */
             request_time_ms: number;
             /** State */
@@ -183,6 +229,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_api_conversations_get: {
+        parameters: {
+            query?: {
+                max_results?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
                 };
             };
             /** @description Validation Error */
