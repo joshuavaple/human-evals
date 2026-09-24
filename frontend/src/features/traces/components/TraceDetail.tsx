@@ -6,8 +6,13 @@ import { IOPanel } from './IOPanel'
 import { StateBadge } from './StateBadge'
 
 // Right-hand pane: the selected trace's input and output side by side.
-export function TraceDetail({ traceId }: { traceId: string }) {
-  const { data: trace, error, isPending } = useTrace(traceId)
+interface TraceDetailProps {
+  experimentId: string
+  traceId: string
+}
+
+export function TraceDetail({ experimentId, traceId }: TraceDetailProps) {
+  const { data: trace, error, isPending } = useTrace(experimentId, traceId)
 
   if (isPending) return <p className="text-sm text-slate-500 dark:text-slate-400">Loading trace…</p>
   if (error) return <ErrorMessage title="Could not load this trace" error={error} />
