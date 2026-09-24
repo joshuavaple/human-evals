@@ -1,7 +1,7 @@
 const TONES = {
-  green: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  red: 'bg-rose-50 text-rose-700 ring-rose-600/20',
-  gray: 'bg-slate-100 text-slate-600 ring-slate-500/20',
+  green: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-400/30',
+  red: 'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950/50 dark:text-rose-300 dark:ring-rose-400/30',
+  gray: 'bg-slate-100 text-slate-600 ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-400/30',
 } as const
 
 interface BadgeProps {
