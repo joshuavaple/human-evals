@@ -27,7 +27,7 @@ type Json = Record<string, unknown>
 
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-export function toConversation(value: unknown, defaultRole: Role): Message[] | null {
+export function toMessages(value: unknown, defaultRole: Role): Message[] | null {
   if (typeof value === 'string') return [message(defaultRole, value)]
   if (!isObject(value)) return null
 
