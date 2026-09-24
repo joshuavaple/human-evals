@@ -45,7 +45,7 @@ class MlflowTraceRepository:
 
     def list_traces(self, max_results: int = 50, page_token: str | None = None) -> TracePage:
         traces = self._client.search_traces(
-            experiment_ids=[self.experiment_id],
+            locations=[self.experiment_id],
             max_results=max_results,
             page_token=page_token,
             order_by=["timestamp_ms DESC"],
