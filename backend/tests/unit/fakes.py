@@ -1,6 +1,7 @@
 """In-memory stand-in for MlflowClient, covering only the calls the repository makes."""
 
 import json
+import re
 
 from mlflow.entities import (
     Experiment,
@@ -45,6 +46,7 @@ def make_trace(
     request_time: int = 1_000,
     inputs: object = None,
     outputs: object = None,
+    session_id: str | None = None,
 ) -> Trace:
     inputs = inputs if inputs is not None else {"question": f"question {trace_id}"}
     outputs = outputs if outputs is not None else {"answer": f"answer {trace_id}"}
@@ -56,6 +58,7 @@ def make_trace(
         request_preview=json.dumps(inputs),
         response_preview=json.dumps(outputs),
         execution_duration=42,
+        trace_metadata={"mlflow.trace.session": session_id} if session_id else {},
     )
     return Trace(info=info, data=TraceData(spans=[_root_span(trace_id, inputs, outputs)]))
 
@@ -71,6 +74,7 @@ class FakeMlflowClient:
         self._experiments = experiments  # name -> id
         self._traces = {t.info.trace_id: t for t in traces}
         self.experiment_lookups = 0
+        self.search_calls = 0
 
     def get_experiment_by_name(self, name: str) -> Experiment | None:
         self.experiment_lookups += 1
@@ -78,12 +82,20 @@ class FakeMlflowClient:
             return None
         return Experiment(self._experiments[name], name, "", "active")
 
-    def search_traces(self, *, locations, max_results, page_token, order_by, include_spans):
-        matching = sorted(
-            (t for t in self._traces.values() if t.info.experiment_id in locations),
-            key=lambda t: t.info.request_time,
-            reverse=True,
-        )
+    def search_traces(
+        self, *, locations, max_results, page_token, order_by, include_spans, filter_string=None
+    ):
+        self.search_calls += 1
+        matching = [t for t in self._traces.values() if t.info.experiment_id in locations]
+        if filter_string is not None:
+            # Only the session filter the repository uses is supported.
+            match = re.fullmatch(r"metadata\.`mlflow\.trace\.session` = '(.*)'", filter_string)
+            assert match, f"unsupported filter: {filter_string}"
+            session = match.group(1)
+            matching = [
+                t for t in matching if t.info.trace_metadata.get("mlflow.trace.session") == session
+            ]
+        matching.sort(key=lambda t: t.info.request_time, reverse=order_by[0].endswith("DESC"))
         start = int(page_token or 0)
         end = start + max_results
         token = str(end) if end < len(matching) else None
