@@ -73,10 +73,11 @@ frontend/
     │   └── traces.ts          # One function per endpoint: fetchTraces, fetchTrace
     │
     ├── features/              # ── One folder per feature of the app ──
-    │   └── traces/
-    │       ├── hooks/         # Data loading for components (useTraceList, useTrace)
-    │       ├── components/    # UI for this feature (TraceList, TraceDetail, IOPanel…)
-    │       └── lib/           # Plain logic, no UI (conversation parsing, formatting)
+    │   ├── traces/
+    │   │   ├── hooks/         # Data loading for components (useTraceList, useTrace)
+    │   │   ├── components/    # UI for this feature (TraceList, TraceDetail, IOPanel…)
+    │   │   └── lib/           # Plain logic, no UI (conversation parsing, formatting)
+    │   └── theme/             # Light/dark mode switch (top-right button)
     │
     ├── components/ui/         # Small reusable pieces not tied to a feature (Badge, ErrorMessage)
     └── test/setup.ts          # Test setup (adds matchers like toBeInTheDocument)
@@ -102,6 +103,8 @@ components  ──use──►  hooks  ──call──►  api/  ──HTTP─�
 **The backend API changed (new field or endpoint).** Start the backend, then run `npm run gen:api`. TypeScript will point out (`npm run typecheck`) every place that needs updating. For a new endpoint, add a function in `src/api/`, then a hook in the feature's `hooks/` folder.
 
 **A trace shows raw JSON instead of a conversation.** Its format isn't recognised yet. Add it to `src/features/traces/lib/conversation.ts`, with a test in `conversation.test.ts`.
+
+**Styling for dark mode.** Dark mode works by adding `class="dark"` to the page's `<html>` tag. Every colour class needs a `dark:` partner, which only applies in dark mode. For example, `bg-white dark:bg-slate-900` or `text-slate-500 dark:text-slate-400`. Copy the pairs already used in existing components so the colours stay consistent. To check, click the sun/moon button at the top right.
 
 **Adding a new feature** (e.g. reviewing): create `src/features/<name>/` with the same `hooks/`, `components/` and `lib/` folders.
 
