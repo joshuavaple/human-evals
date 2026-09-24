@@ -4,8 +4,9 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from databricks.sdk import WorkspaceClient
 from mlflow import MlflowClient
-from mlflow.entities import Experiment, Trace
+from mlflow.entities import Assessment, AssessmentSource, Experiment, Feedback, Trace
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
     BAD_REQUEST,
@@ -14,6 +15,7 @@ from mlflow.protos.databricks_pb2 import (
     RESOURCE_DOES_NOT_EXIST,
     ErrorCode,
 )
+from mlflow.tracing.client import TracingClient
 from mlflow.tracing.constant import TraceMetadataKey
 
 from app.schemas import (
@@ -21,6 +23,8 @@ from app.schemas import (
     ConversationPage,
     ExperimentList,
     ExperimentSummary,
+    Review,
+    ReviewInput,
     TraceDetail,
     TracePage,
     TraceSummary,
@@ -40,6 +44,11 @@ _OWNER_EMAIL_TAG = "mlflow.ownerEmail"
 # Trace metadata key holding the conversation ID ("mlflow.trace.session").
 _SESSION_KEY = TraceMetadataKey.TRACE_SESSION
 _PAGE_SIZE = 100
+
+# A review is MLflow feedback with this name from a HUMAN source whose source_id is the
+# reviewer's email. The value is True for "pass" and False for "issue"; the comment (the
+# issue text, or an optional note on a pass) is the feedback's rationale.
+REVIEW_NAME = "human_review"
 _MAX_PARALLEL_FETCHES = 8
 
 
@@ -64,12 +73,32 @@ class MlflowRepository:
     exists and lives in the folder, raising ExperimentNotFoundError otherwise.
     """
 
-    def __init__(self, profile: str, experiment_folder: str, client: MlflowClient | None = None):
-        self._client = client or MlflowClient(tracking_uri=databricks_tracking_uri(profile))
+    def __init__(
+        self,
+        profile: str,
+        experiment_folder: str,
+        client: MlflowClient | None = None,
+        tracing_client: TracingClient | None = None,
+        reviewer: str | None = None,
+    ):
+        uri = databricks_tracking_uri(profile)
+        self._profile = profile
+        self._client = client or MlflowClient(tracking_uri=uri)
+        # MlflowClient has no feedback methods. TracingClient is what mlflow.log_feedback
+        # uses internally, and unlike mlflow.log_feedback it accepts a tracking URI.
+        self._tracing = tracing_client or TracingClient(tracking_uri=uri)
+        self._reviewer = reviewer
         self._folder = experiment_folder.rstrip("/")
         # Experiments already checked to be in the folder, so each request doesn't
         # pay for another lookup. id -> summary
         self._known: dict[str, ExperimentSummary] = {}
+
+    @property
+    def reviewer(self) -> str:
+        """Email of the logged-in Databricks user; reviews are saved under this name."""
+        if self._reviewer is None:
+            self._reviewer = WorkspaceClient(profile=self._profile).current_user.me().user_name
+        return self._reviewer
 
     def list_experiments(self) -> ExperimentList:
         """Active experiments directly inside the folder, most recently updated first."""
@@ -119,7 +148,7 @@ class MlflowRepository:
             include_spans=False,
         )
         return TracePage(
-            traces=[_to_summary(t) for t in traces],
+            traces=[_to_summary(t, self.reviewer) for t in traces],
             next_page_token=traces.token or None,
         )
 
@@ -164,7 +193,7 @@ class MlflowRepository:
                     )
                 )
 
-        conversations = [_to_conversation(traces) for traces in groups]
+        conversations = [_to_conversation(traces, self.reviewer) for traces in groups]
         conversations.sort(key=lambda c: c.latest_request_time_ms, reverse=True)
         return ConversationPage(conversations=conversations, has_more=has_more)
 
@@ -205,6 +234,41 @@ class MlflowRepository:
         )
 
     def get_trace(self, experiment_id: str, trace_id: str) -> TraceDetail:
+        trace = self._fetch_trace(experiment_id, trace_id)
+        return TraceDetail(
+            **_to_summary(trace, self.reviewer).model_dump(),
+            request=_parse_json(trace.data.request),
+            response=_parse_json(trace.data.response),
+        )
+
+    def save_review(self, experiment_id: str, trace_id: str, review: ReviewInput) -> Review:
+        """Saves the reviewer's verdict, replacing any earlier one of theirs on the trace."""
+        trace = self._fetch_trace(experiment_id, trace_id)
+        earlier = _own_reviews(trace, self.reviewer)
+        # Log the new verdict before deleting the old ones: if a delete fails, the trace
+        # has an extra old verdict (reads use the newest) instead of losing this one.
+        # (Databricks can't update the feedback in place: an update can't clear the
+        # rationale, so switching issue -> pass would keep the old issue text.)
+        saved = self._tracing.log_assessment(
+            trace_id,
+            Feedback(
+                name=REVIEW_NAME,
+                value=review.verdict == "pass",
+                rationale=review.comment,
+                source=AssessmentSource(source_type="HUMAN", source_id=self.reviewer),
+            ),
+        )
+        for assessment in earlier:
+            self._tracing.delete_assessment(trace_id, assessment.assessment_id)
+        return _to_review(saved)
+
+    def delete_review(self, experiment_id: str, trace_id: str) -> None:
+        """Removes the reviewer's verdict from the trace, if there is one."""
+        trace = self._fetch_trace(experiment_id, trace_id)
+        for assessment in _own_reviews(trace, self.reviewer):
+            self._tracing.delete_assessment(trace_id, assessment.assessment_id)
+
+    def _fetch_trace(self, experiment_id: str, trace_id: str) -> Trace:
         self.get_experiment(experiment_id)
         try:
             trace = self._client.get_trace(trace_id, display=False)
@@ -215,11 +279,7 @@ class MlflowRepository:
         # Don't serve traces from other experiments just because the ID was guessed.
         if trace is None or trace.info.experiment_id != experiment_id:
             raise TraceNotFoundError(trace_id)
-        return TraceDetail(
-            **_to_summary(trace).model_dump(),
-            request=_parse_json(trace.data.request),
-            response=_parse_json(trace.data.response),
-        )
+        return trace
 
 
 def _to_experiment(experiment: Experiment) -> ExperimentSummary:
@@ -234,8 +294,9 @@ def _to_experiment(experiment: Experiment) -> ExperimentSummary:
     )
 
 
-def _to_summary(trace: Trace) -> TraceSummary:
+def _to_summary(trace: Trace, reviewer: str) -> TraceSummary:
     info = trace.info
+    own = _own_reviews(trace, reviewer)
     return TraceSummary(
         trace_id=info.trace_id,
         session_id=_session_id(trace),
@@ -244,6 +305,28 @@ def _to_summary(trace: Trace) -> TraceSummary:
         execution_duration_ms=info.execution_duration,
         request_preview=info.request_preview,
         response_preview=info.response_preview,
+        review=_to_review(max(own, key=lambda a: a.last_update_time_ms)) if own else None,
+    )
+
+
+def _own_reviews(trace: Trace, reviewer: str) -> list[Assessment]:
+    """The reviewer's review feedback on the trace (normally one)."""
+    return [
+        a
+        for a in trace.info.assessments
+        if a.name == REVIEW_NAME
+        and a.source.source_type == "HUMAN"
+        and a.source.source_id == reviewer
+        and isinstance(getattr(a, "value", None), bool)
+    ]
+
+
+def _to_review(assessment: Assessment) -> Review:
+    return Review(
+        verdict="pass" if assessment.value else "issue",
+        comment=assessment.rationale or None,
+        reviewer=assessment.source.source_id,
+        updated_time_ms=assessment.last_update_time_ms,
     )
 
 
@@ -251,8 +334,8 @@ def _session_id(trace: Trace) -> str | None:
     return trace.info.trace_metadata.get(_SESSION_KEY) or None
 
 
-def _to_conversation(traces: list[Trace]) -> Conversation:
-    summaries = sorted((_to_summary(t) for t in traces), key=lambda t: t.request_time_ms)
+def _to_conversation(traces: list[Trace], reviewer: str) -> Conversation:
+    summaries = sorted((_to_summary(t, reviewer) for t in traces), key=lambda t: t.request_time_ms)
     return Conversation(
         session_id=summaries[0].session_id,
         latest_request_time_ms=summaries[-1].request_time_ms,
