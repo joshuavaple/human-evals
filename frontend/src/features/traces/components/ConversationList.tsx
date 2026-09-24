@@ -8,6 +8,7 @@ import { formatTimestamp } from '../lib/format'
 import { StateBadge } from './StateBadge'
 
 interface ConversationListProps {
+  experimentId: string
   selectedId: string | null
   onSelect: (traceId: string) => void
 }
@@ -16,8 +17,8 @@ const conversationKey = (c: Conversation) => c.session_id ?? c.traces[0].trace_i
 
 // Left-hand list: conversations with the latest activity first. Each one opens
 // to show its turns (traces), first turn on top.
-export function ConversationList({ selectedId, onSelect }: ConversationListProps) {
-  const { data, error, isPending, isFetching, isPlaceholderData, loadMore } = useConversationList()
+export function ConversationList({ experimentId, selectedId, onSelect }: ConversationListProps) {
+  const { data, error, isPending, isFetching, isPlaceholderData, loadMore } = useConversationList(experimentId)
   // Which conversations are expanded. `null` = the user hasn't toggled anything
   // yet, in which case only the most recent conversation is open.
   const [openKeys, setOpenKeys] = useState<Set<string> | null>(null)

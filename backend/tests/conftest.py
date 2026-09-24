@@ -11,6 +11,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addoption(
         "--experiment",
-        default=os.environ.get("HUMAN_EVALS_EXPERIMENT_NAME"),
-        help="MLflow experiment name (workspace path) for integration tests",
+        default=os.environ.get("HUMAN_EVALS_TEST_EXPERIMENT"),
+        help="Workspace path of an MLflow experiment with traces, e.g. /Shared/my-agent. "
+        "Integration tests browse its parent folder.",
     )

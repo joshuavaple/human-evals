@@ -4,15 +4,15 @@
  */
 
 export interface paths {
-    "/api/traces": {
+    "/api/experiments": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Traces */
-        get: operations["list_traces_api_traces_get"];
+        /** List Experiments */
+        get: operations["list_experiments_api_experiments_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21,15 +21,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/traces/{trace_id}": {
+    "/api/experiments/{experiment_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Trace */
-        get: operations["get_trace_api_traces__trace_id__get"];
+        /** Get Experiment */
+        get: operations["get_experiment_api_experiments__experiment_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -38,7 +38,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/conversations": {
+    "/api/experiments/{experiment_id}/conversations": {
         parameters: {
             query?: never;
             header?: never;
@@ -46,7 +46,41 @@ export interface paths {
             cookie?: never;
         };
         /** List Conversations */
-        get: operations["list_conversations_api_conversations_get"];
+        get: operations["list_conversations_api_experiments__experiment_id__conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/experiments/{experiment_id}/traces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Traces */
+        get: operations["list_traces_api_experiments__experiment_id__traces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/experiments/{experiment_id}/traces/{trace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Trace */
+        get: operations["get_trace_api_experiments__experiment_id__traces__trace_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -100,6 +134,31 @@ export interface components {
             conversations: components["schemas"]["Conversation"][];
             /** Has More */
             has_more: boolean;
+        };
+        /**
+         * ExperimentList
+         * @description Experiments directly inside `folder`, most recently updated first.
+         */
+        ExperimentList: {
+            /** Folder */
+            folder: string;
+            /** Experiments */
+            experiments: components["schemas"]["ExperimentSummary"][];
+        };
+        /** ExperimentSummary */
+        ExperimentSummary: {
+            /** Experiment Id */
+            experiment_id: string;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Location */
+            location: string;
+            /** Created By */
+            created_by: string | null;
+            /** Last Update Time Ms */
+            last_update_time_ms: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -179,14 +238,100 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_traces_api_traces_get: {
+    list_experiments_api_experiments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentList"];
+                };
+            };
+        };
+    };
+    get_experiment_api_experiments__experiment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_api_experiments__experiment_id__conversations_get: {
+        parameters: {
+            query?: {
+                max_results?: number;
+            };
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_traces_api_experiments__experiment_id__traces_get: {
         parameters: {
             query?: {
                 max_results?: number;
                 page_token?: string | null;
             };
             header?: never;
-            path?: never;
+            path: {
+                experiment_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -211,11 +356,12 @@ export interface operations {
             };
         };
     };
-    get_trace_api_traces__trace_id__get: {
+    get_trace_api_experiments__experiment_id__traces__trace_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                experiment_id: string;
                 trace_id: string;
             };
             cookie?: never;
@@ -229,37 +375,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_conversations_api_conversations_get: {
-        parameters: {
-            query?: {
-                max_results?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationPage"];
                 };
             };
             /** @description Validation Error */

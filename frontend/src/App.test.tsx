@@ -1,14 +1,39 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as experimentsApi from '@/api/experiments'
 import * as api from '@/api/traces'
 import type { TraceSummary } from '@/api/types'
 import App from './App'
 
 // Replace the real backend calls with fakes.
+vi.mock('@/api/experiments')
 vi.mock('@/api/traces')
+
+const experiments = [
+  {
+    experiment_id: '1',
+    name: 'chatbot',
+    path: '/Shared/chatbot',
+    location: '/Shared',
+    created_by: 'zoe@example.com',
+    last_update_time_ms: 2,
+  },
+  {
+    experiment_id: '2',
+    name: 'rag-agent',
+    path: '/Shared/rag-agent',
+    location: '/Shared',
+    created_by: 'amy@example.com',
+    last_update_time_ms: 1,
+  },
+]
+
+// Experiment names in the order the table shows them.
+const rowNames = () => screen.getAllByRole('row').slice(1).map((row) => within(row).getByRole('link').textContent)
 
 function trace(id: string, sessionId: string, time: number, question: string): TraceSummary {
   return {
@@ -39,16 +64,97 @@ const conversations = [
 // The list of turns shown under an expanded conversation header.
 const turnList = (header: HTMLElement) => within(header.closest('li')!).getByRole('list')
 
-function renderApp() {
+// Renders the whole app as if the browser were at `path`.
+function renderApp(path = '/experiments/1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <App />
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
-describe('App', () => {
+beforeEach(() => {
+  vi.mocked(experimentsApi.fetchExperiments).mockResolvedValue({ folder: '/Shared', experiments })
+  vi.mocked(experimentsApi.fetchExperiment).mockImplementation(async (id) => {
+    const found = experiments.find((e) => e.experiment_id === id)
+    if (!found) throw new Error(`Experiment not found: ${id}`)
+    return found
+  })
+})
+
+describe('Experiment browsing', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchConversations).mockResolvedValue({ conversations: [], has_more: false })
+  })
+
+  it('lists experiments in a table, newest first', async () => {
+    renderApp('/')
+    expect(await screen.findByRole('columnheader', { name: 'Last modified' })).toHaveAttribute('aria-sort', 'descending')
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Name↓',
+      'Created by↓',
+      'Last modified↓',
+      'Location↓',
+    ])
+    expect(rowNames()).toEqual(['chatbot', 'rag-agent'])
+    expect(screen.getByRole('link', { name: 'rag-agent' })).toHaveAttribute('href', '/experiments/2')
+    expect(screen.getByRole('row', { name: /rag-agent/ })).toHaveTextContent('amy@example.com')
+  })
+
+  it('sorts by a column when its header is clicked, and flips on a second click', async () => {
+    renderApp('/')
+    await userEvent.click(await screen.findByRole('button', { name: /Created by/ }))
+    expect(screen.getByRole('columnheader', { name: /Created by/ })).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByRole('columnheader', { name: /Last modified/ })).toHaveAttribute('aria-sort', 'none')
+    expect(rowNames()).toEqual(['rag-agent', 'chatbot']) // amy before zoe
+
+    await userEvent.click(screen.getByRole('button', { name: /Created by/ }))
+    expect(screen.getByRole('columnheader', { name: /Created by/ })).toHaveAttribute('aria-sort', 'descending')
+    expect(rowNames()).toEqual(['chatbot', 'rag-agent'])
+  })
+
+  it('opens an experiment by clicking anywhere on its row', async () => {
+    renderApp('/')
+    await userEvent.click(await screen.findByText('amy@example.com'))
+    expect(await screen.findByText('/Shared/rag-agent')).toBeInTheDocument()
+  })
+
+  it('keeps the sort when going back to the list', async () => {
+    renderApp('/?sort=name&dir=desc')
+    expect(await screen.findByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'descending')
+    await userEvent.click(screen.getByRole('link', { name: 'chatbot' }))
+    await userEvent.click(await screen.findByRole('link', { name: '← All experiments' }))
+    expect(await screen.findByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'descending')
+    expect(rowNames()).toEqual(['rag-agent', 'chatbot'])
+  })
+
+  it('opens an experiment and goes back to the list', async () => {
+    renderApp('/')
+    await userEvent.click(await screen.findByRole('link', { name: 'rag-agent' }))
+
+    expect(await screen.findByText('/Shared/rag-agent')).toBeInTheDocument()
+    expect(api.fetchConversations).toHaveBeenCalledWith('2', 20)
+
+    await userEvent.click(screen.getByRole('link', { name: '← All experiments' }))
+    expect(await screen.findByRole('link', { name: 'chatbot' })).toBeInTheDocument()
+  })
+
+  it('shows an error for an experiment that does not exist', async () => {
+    renderApp('/experiments/404')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Experiment not found: 404')
+    expect(screen.getByRole('link', { name: '← All experiments' })).toBeInTheDocument()
+  })
+
+  it('sends unknown URLs to the experiment list', async () => {
+    renderApp('/no/such/page')
+    expect(await screen.findByRole('link', { name: 'chatbot' })).toBeInTheDocument()
+  })
+})
+
+describe('Experiment page', () => {
   beforeEach(() => {
     vi.mocked(api.fetchConversations).mockResolvedValue({ conversations, has_more: false })
     vi.mocked(api.fetchTrace).mockResolvedValue({
@@ -90,14 +196,14 @@ describe('App', () => {
 
     expect(await screen.findByText('m1')).toBeInTheDocument()
     expect(screen.getByText('$2,000')).toBeInTheDocument() // rendered as markdown bold
-    expect(api.fetchTrace).toHaveBeenCalledWith('m1')
+    expect(api.fetchTrace).toHaveBeenCalledWith('1', 'm1')
   })
 
   it('asks for more conversations when "Load more" is clicked', async () => {
     vi.mocked(api.fetchConversations).mockResolvedValue({ conversations, has_more: true })
     renderApp()
     await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
-    expect(api.fetchConversations).toHaveBeenLastCalledWith(40)
+    expect(api.fetchConversations).toHaveBeenLastCalledWith('1', 40)
   })
 
   it('shows an error when the backend fails', async () => {

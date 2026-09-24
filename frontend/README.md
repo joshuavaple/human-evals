@@ -1,6 +1,6 @@
 # Frontend
 
-The review UI for human-evals. It shows traces from the MLflow experiment as readable input/output pairs.
+The review UI for human-evals. You pick an MLflow experiment, then read its traces as conversations of input/output pairs.
 
 Built with **React** (UI components), **TypeScript** (JavaScript with types), **Vite** (dev server and build tool), **Tailwind CSS** (styling), and **TanStack Query** (fetching and caching backend data).
 
@@ -27,6 +27,19 @@ Open **http://localhost:5173** in your browser.
 
 Both servers reload automatically when you save a file. Stop each with `Ctrl+C`.
 
+## Pages
+
+The app has two pages. Each has its own URL, so the browser's back button, reloading and bookmarks all work:
+
+| URL | Page | What you see |
+|---|---|---|
+| `/` | Experiments | A table of the experiments in the backend's folder (`/Shared` by default), with the columns of the Databricks Experiments tab: Name, Created by, Last modified, Location. Click a column header to sort by it (click again to flip), and click a row to open it. |
+| `/experiments/<id>` | Experiment | That experiment's conversations on the left, the selected trace on the right. "← All experiments" goes back. |
+
+The table's sort is part of the URL (e.g. `/?sort=name&dir=asc`), so it's kept when you open an experiment and come back. Any other URL sends you to `/`. The folder is a backend setting (`HUMAN_EVALS_EXPERIMENT_FOLDER`, see `backend/.env.example`).
+
+Switching between URLs is handled by **React Router**. It swaps the page component without reloading the browser tab. The list of URLs and their pages is in `src/App.tsx`.
+
 ## How traces are organised
 
 The left-hand list groups traces into **conversations**. A conversation is all the traces that share an MLflow conversation ID (`mlflow.trace.session`), so one conversation is one chat with the agent.
@@ -36,7 +49,7 @@ The left-hand list groups traces into **conversations**. A conversation is all t
 - **No conversation ID:** a trace logged without one shows up as its own one-turn conversation.
 - **Load more:** fetches 20 more conversations.
 
-The backend does the grouping (`GET /api/conversations`). The frontend just displays what it gets.
+The backend does the grouping (`GET /api/experiments/<id>/conversations`). The frontend just displays what it gets.
 
 ## How the frontend talks to the backend
 
@@ -46,7 +59,7 @@ Browser ──► Vite dev server (:5173) ──/api/*──► FastAPI backend 
 
 The browser only ever talks to the Vite dev server. Any request starting with `/api` is forwarded ("proxied") to the backend. This is configured in `vite.config.ts` (`server.proxy`). Because of this:
 
-- The frontend code calls relative URLs like `/api/traces`, with no hostnames.
+- The frontend code calls relative URLs like `/api/experiments`, with no hostnames.
 - There's no CORS setup to worry about.
 - If the backend runs on another port, start the frontend with `BACKEND_URL=http://localhost:9000 npm run dev`.
 
@@ -73,17 +86,23 @@ frontend/
 ├── vite.config.ts             # Dev server, /api proxy, Tailwind, test setup
 ├── package.json               # Dependencies and the npm scripts above
 └── src/
-    ├── main.tsx               # Entry point: starts React and TanStack Query
-    ├── App.tsx                # Page layout: header, conversation list, trace detail
+    ├── main.tsx               # Entry point: starts React, TanStack Query and the router
+    ├── App.tsx                # Header shown on every page + which page each URL shows
     ├── index.css              # Loads Tailwind
     │
     ├── api/                   # ── Talking to the backend (nothing else does) ──
     │   ├── schema.d.ts        # GENERATED from the backend. Don't edit; run `npm run gen:api`
     │   ├── types.ts           # Short names for generated types (TraceSummary, TraceDetail…)
     │   ├── client.ts          # Typed HTTP client + ApiError
+    │   ├── experiments.ts     # One function per endpoint: fetchExperiments, fetchExperiment
     │   └── traces.ts          # One function per endpoint: fetchConversations, fetchTrace
     │
+    ├── pages/                 # ── One component per URL; puts feature pieces on the page ──
+    │   ├── ExperimentsPage.tsx   # "/"
+    │   └── ExperimentPage.tsx    # "/experiments/<id>"
+    │
     ├── features/              # ── One folder per feature of the app ──
+    │   ├── experiments/       # Experiment table (ExperimentTable; lib/sortExperiments.ts has the sort rules)
     │   ├── traces/
     │   │   ├── hooks/         # Data loading for components (useConversationList, useTrace)
     │   │   ├── components/    # UI for this feature (ConversationList, TraceDetail, IOPanel…)
@@ -99,10 +118,12 @@ Tests live next to the file they test, named `*.test.ts(x)`.
 ### The layers, and which way they depend
 
 ```
-components  ──use──►  hooks  ──call──►  api/  ──HTTP──►  backend
-     │
-     └──use──►  lib/  (plain functions, easy to test)
+pages  ──use──►  components  ──use──►  hooks  ──call──►  api/  ──HTTP──►  backend
+                      │
+                      └──use──►  lib/  (plain functions, easy to test)
 ```
+
+- **`pages/`** decide what goes where on the screen for one URL. They read URL parts (like the experiment ID) and pass them down to feature components.
 
 - **`api/`** knows URLs and HTTP. It doesn't know about React.
 - **`hooks/`** wrap the `api/` functions with TanStack Query, which handles loading states, errors, caching and paging. Components get `{ data, error, isPending }` back.

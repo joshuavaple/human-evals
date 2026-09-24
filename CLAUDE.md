@@ -16,12 +16,12 @@ Python 3.12, managed with `uv`. Run commands from `backend/`:
 uv sync                                   # install deps
 uv run pytest                             # all tests (integration tests skip without credentials)
 uv run pytest tests/unit/test_api.py::test_get_trace   # single test
-uv run pytest -m integration --profile <databricks-profile> --experiment <experiment path>
+uv run pytest -m integration --profile <databricks-profile> --experiment /Shared/<experiment with traces>
 uv run ruff check --fix . && uv run ruff format .
 uv run uvicorn --factory app.main:create_app --reload   # dev server on :8000
 ```
 
-Config is read from `HUMAN_EVALS_*` env vars or `backend/.env` (see `.env.example`): `HUMAN_EVALS_DATABRICKS_PROFILE` and `HUMAN_EVALS_EXPERIMENT_NAME` (a workspace path such as `/Shared/foo`). Integration tests take the same values from `--profile`/`--experiment` or those env vars. Set `MLFLOW_DISABLE_AGENT_HINT=1` to silence MLflow's startup hint.
+Config is read from `HUMAN_EVALS_*` env vars or `backend/.env` (see `.env.example`): `HUMAN_EVALS_DATABRICKS_PROFILE` (required) and `HUMAN_EVALS_EXPERIMENT_FOLDER` (default `/Shared`, the workspace folder whose experiments the UI can browse). There is no configured experiment: the frontend picks one, and its ID is in every trace URL. Integration tests take `--profile` and `--experiment` (a path of an experiment with traces; they browse its parent folder), falling back to `HUMAN_EVALS_DATABRICKS_PROFILE` / `HUMAN_EVALS_TEST_EXPERIMENT`. Set `MLFLOW_DISABLE_AGENT_HINT=1` to silence MLflow's startup hint.
 
 ### Auth
 
@@ -32,14 +32,16 @@ Uses Databricks **U2M OAuth** via a `~/.databrickscfg` profile with `auth_type =
 Layers: `api/routes` (HTTP only) → `repositories/mlflow_repo.py` → MLflow. `mlflow_repo.py` is the **only** module that imports `mlflow`. It converts MLflow `Trace` objects into the Pydantic models in `app/schemas/`, which form the API contract. There is no `services/` layer yet. Add one when review/feedback logic arrives.
 
 - `app/main.py` is an app **factory** (`create_app(settings)`), so importing it doesn't require env vars. Start uvicorn with `--factory`.
-- The repository is injected via `app.api.dependencies.get_trace_repository`. Tests replace it with `app.dependency_overrides` and a `FakeMlflowClient` (`tests/unit/fakes.py`) that builds real MLflow `Trace` objects with a root span.
+- The repository (`MlflowRepository`) is injected via `app.api.dependencies.Repo` / `get_repository`. Tests replace it with `app.dependency_overrides` and a `FakeMlflowClient` (`tests/unit/fakes.py`) that builds real MLflow `Trace` objects with a root span.
 - List endpoints use `search_traces(include_spans=False)` and return only MLflow's truncated `request_preview`/`response_preview`. The detail endpoint fetches the full trace and returns the root span's inputs/outputs, parsed as JSON when possible.
-- `get_trace` returns 404 for traces outside the configured experiment.
+- Routes: `GET /api/experiments`, `GET /api/experiments/{id}`, and everything trace-related under `/api/experiments/{id}/…` (`conversations`, `traces`, `traces/{trace_id}`). Every repository method that takes an `experiment_id` first calls `get_experiment`, which only accepts active experiments directly inside the folder. IDs are cached in `_known` (and `list_experiments` fills it), so it costs one lookup per experiment per process. `ExperimentNotFoundError` and `TraceNotFoundError` become 404s through exception handlers in `main.py`. Routes don't catch them.
+- `list_experiments` uses `search_experiments(filter_string="name LIKE '<folder>/%'")` and drops names containing a further `/` (subfolders). It takes a few seconds on Databricks.
+- `get_trace` returns 404 for traces outside the requested experiment.
 - **Conversations** are MLflow sessions: traces sharing the `mlflow.trace.session` metadata key. `list_conversations` does the same two steps as `mlflow.search_sessions`, which can't be used because it only works with the global tracking URI. Step 1 scans traces newest first to pick `max_results` conversations (so they're ordered by latest activity). Step 2 fetches each one in full with a `metadata.\`mlflow.trace.session\` = '<id>'` filter, in a thread pool, and is skipped when the scan covered every trace. Turns are sorted oldest first. Traces without a session become single-turn conversations (`session_id = None`). There's no page token (a conversation's turns span trace pages); callers re-request with a larger `max_results`, and `has_more` says whether that would return more.
 
 ### MLflow/Databricks gotchas
 
-- A missing trace raises `MlflowException` with `NOT_FOUND` on Databricks but `RESOURCE_DOES_NOT_EXIST` on OSS MLflow. Handle both (`_NOT_FOUND_CODES`).
+- A missing trace raises `MlflowException` with `NOT_FOUND` on Databricks but `RESOURCE_DOES_NOT_EXIST` on OSS MLflow. Handle both (`_NOT_FOUND_CODES`). `get_experiment` with a malformed ID raises `BAD_REQUEST` on Databricks (`INVALID_PARAMETER_VALUE` on OSS), also treated as not found.
 - MLflow can't pass `databricks-cli` (U2M) credentials to child processes (`get_databricks_env_vars` raises). Keep MLflow calls in-process.
 
 ## Frontend (`frontend/`)
@@ -60,9 +62,10 @@ npm run gen:api              # regenerate src/api/schema.d.ts, needs the backend
 Dependency direction: `components` → `hooks` → `api/` → backend, with `lib/` for pure logic.
 
 - `src/api/schema.d.ts` is **generated** from FastAPI's OpenAPI spec (`openapi-typescript`). Never hand-edit it. After changing backend schemas or routes, run `gen:api` and commit the result. `openapi-typescript` declares a TS 5 peer dependency, so `package.json` has an `overrides` entry to use the project's TS 6.
-- `src/api/traces.ts` has one function per endpoint, using the typed `openapi-fetch` client (base URL `''`, relying on the Vite proxy). Only `api/` makes HTTP calls.
-- `src/features/<feature>/{hooks,components,lib}`: hooks wrap `api/` with TanStack Query (`useConversationList` re-queries with a growing limit using `keepPreviousData`, keyed `['conversations', limit]`; `useTrace` keyed `['traces', id]`). Components never fetch directly.
+- `src/api/experiments.ts` and `src/api/traces.ts` have one function per endpoint, using the typed `openapi-fetch` client (base URL `''`, relying on the Vite proxy). Only `api/` makes HTTP calls.
+- `src/features/<feature>/{hooks,components,lib}`: hooks wrap `api/` with TanStack Query (`useExperimentList` keyed `['experiments']` with a 5-minute `staleTime` because listing is slow; `useConversationList` re-queries with a growing limit using `keepPreviousData`, keyed `['conversations', experimentId, limit]`; `useTrace` keyed `['traces', experimentId, id]`). Components never fetch directly.
 - `features/traces/lib/messages.ts` normalises agent I/O formats (OpenAI chat and completions, MLflow ResponsesAgent input/output including `function_call` items, LangChain `human`/`ai`/`tool` messages) into `Message[]`, which `MessageList` renders. "Conversation" in this codebase means an MLflow session (group of traces), not the messages inside one trace. It returns `null` for unknown shapes, and `IOPanel` then shows raw JSON. Add new formats there with a test.
-- Component tests mock `@/api/traces` with `vi.mock` rather than stubbing `fetch`, because the jsdom test environment can't resolve the relative URLs the client uses. Vitest globals are off, so `src/test/setup.ts` registers Testing Library's `cleanup` explicitly.
+- Routing uses React Router (declarative mode): `BrowserRouter` in `main.tsx`, `<Routes>` in `App.tsx`. The experiment table (`features/experiments/components/ExperimentTable`) sorts on the client with the pure functions in `lib/sortExperiments.ts` (empty values last, ties by name, `Intl.Collator` numeric/case-insensitive). The sort lives in the URL query (`?sort=<key>&dir=asc|desc`) through `useExperimentSort`, using `replace` so it adds no history entries. Rows link with router state `{ listSearch }` so the experiment page's back link returns to the same sort. `created_by` comes from the `mlflow.ownerEmail` experiment tag, and `location` is the parent folder. `src/pages/` holds one component per route (`/` → `ExperimentsPage`, `/experiments/:experimentId` → `ExperimentPage`, anything else redirects to `/`). Pages compose feature components and own page layout. `ExperimentPage` renders its view with `key={experimentId}` so the selected trace and expanded conversations reset when switching experiments. The selected trace isn't in the URL.
+- Component tests mock `@/api/experiments` and `@/api/traces` with `vi.mock` rather than stubbing `fetch`, because the jsdom test environment can't resolve the relative URLs the client uses. Vitest globals are off, so `src/test/setup.ts` registers Testing Library's `cleanup` explicitly. `App.test.tsx` renders the app inside a `MemoryRouter` at a given path.
 - Dark mode is class-based: `@custom-variant dark` in `src/index.css` makes `dark:` classes depend on `.dark` on `<html>`, not the OS setting. `features/theme` toggles the class and saves the choice to localStorage (`theme` key), falling back to `prefers-color-scheme`. An inline script in `index.html` repeats that logic before React loads to avoid a white flash, so keep the two in sync. Every new colour class needs a `dark:` counterpart (e.g. `bg-white dark:bg-slate-900`, `text-slate-500 dark:text-slate-400`, `prose dark:prose-invert`).
 - Import alias `@/` → `src/` (set in both `vite.config.ts` and `tsconfig.app.json`). Styling is Tailwind v4 utility classes, plus `@tailwindcss/typography` (`prose`) for markdown message bodies.

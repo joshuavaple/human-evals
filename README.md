@@ -2,7 +2,7 @@
 
 A simple UI for human review and error analysis of AI responses.
 
-It reads traces (LLM inputs and outputs) from an MLflow experiment on Databricks and shows them to a human reviewer as readable conversations. Saving reviews (pass, or a written issue) back to MLflow as feedback comes next.
+You pick an MLflow experiment on Databricks (from the `/Shared` folder by default), and it shows that experiment's traces (LLM inputs and outputs) to a human reviewer as readable conversations. Saving reviews (pass, or a written issue) back to MLflow as feedback comes next.
 
 | Part | Tech | Docs |
 |---|---|---|
@@ -21,7 +21,7 @@ Prerequisites: [uv](https://docs.astral.sh/uv/), Node.js 20.19+, and the [Databr
    ```bash
    cd backend
    uv sync
-   cp .env.example .env    # then set your profile name and experiment path
+   cp .env.example .env    # then set your Databricks profile name
    ```
 3. Install the frontend:
    ```bash

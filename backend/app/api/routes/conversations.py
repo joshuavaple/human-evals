@@ -1,17 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.api.dependencies import get_trace_repository
-from app.repositories.mlflow_repo import MlflowTraceRepository
+from app.api.dependencies import Repo
 from app.schemas import ConversationPage
 
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+router = APIRouter(prefix="/experiments/{experiment_id}/conversations", tags=["conversations"])
 
 
 @router.get("", response_model=ConversationPage)
 def list_conversations(
-    repo: Annotated[MlflowTraceRepository, Depends(get_trace_repository)],
+    experiment_id: str,
+    repo: Repo,
     max_results: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> ConversationPage:
-    return repo.list_conversations(max_results=max_results)
+    return repo.list_conversations(experiment_id, max_results=max_results)
