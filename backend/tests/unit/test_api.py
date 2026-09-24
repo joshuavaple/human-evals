@@ -11,7 +11,9 @@ from tests.unit.fakes import FakeMlflowClient, make_trace
 def make_client(traces) -> TestClient:
     app = create_app(Settings(databricks_profile="p"))
     fake = FakeMlflowClient({"/Shared/agent": "1", "/Users/me/private": "2"}, traces)
-    repo = MlflowRepository("p", "/Shared", client=fake)
+    repo = MlflowRepository(
+        "p", "/Shared", client=fake, tracing_client=fake, reviewer="me@example.com"
+    )
     app.dependency_overrides[get_repository] = lambda: repo
     return TestClient(app)
 
@@ -74,3 +76,36 @@ def test_get_missing_trace_is_404(client):
     response = client.get("/api/experiments/1/traces/tr-missing")
     assert response.status_code == 404
     assert "Trace not found" in response.json()["detail"]
+
+
+def test_save_and_read_review(client):
+    response = client.put("/api/experiments/1/traces/a1/review", json={"verdict": "pass"})
+    assert response.status_code == 200
+    assert response.json()["verdict"] == "pass"
+    assert response.json()["reviewer"] == "me@example.com"
+    assert client.get("/api/experiments/1/traces/a1").json()["review"]["verdict"] == "pass"
+    turns = client.get("/api/experiments/1/conversations").json()["conversations"][0]["traces"]
+    assert [t["review"] and t["review"]["verdict"] for t in turns] == ["pass", None]
+
+
+def test_pass_with_note(client):
+    body = {"verdict": "pass", "comment": "Good use of the tool"}
+    response = client.put("/api/experiments/1/traces/a1/review", json=body)
+    assert response.json()["comment"] == "Good use of the tool"
+
+
+def test_issue_without_comment_is_422(client):
+    response = client.put("/api/experiments/1/traces/a1/review", json={"verdict": "issue"})
+    assert response.status_code == 422
+    assert "Describe the issue" in response.text
+
+
+def test_delete_review(client):
+    client.put("/api/experiments/1/traces/a1/review", json={"verdict": "issue", "comment": "x"})
+    assert client.delete("/api/experiments/1/traces/a1/review").status_code == 204
+    assert client.get("/api/experiments/1/traces/a1").json()["review"] is None
+
+
+def test_review_on_missing_trace_is_404(client):
+    response = client.put("/api/experiments/1/traces/nope/review", json={"verdict": "pass"})
+    assert response.status_code == 404
