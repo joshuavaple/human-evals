@@ -9,9 +9,10 @@ import { StateBadge } from './StateBadge'
 interface TraceDetailProps {
   experimentId: string
   traceId: string
+  turnLabel?: string // e.g. "Turn 2 of 5"
 }
 
-export function TraceDetail({ experimentId, traceId }: TraceDetailProps) {
+export function TraceDetail({ experimentId, traceId, turnLabel }: TraceDetailProps) {
   const { data: trace, error, isPending } = useTrace(experimentId, traceId)
 
   if (isPending) return <p className="text-sm text-slate-500 dark:text-slate-400">Loading trace…</p>
@@ -24,6 +25,7 @@ export function TraceDetail({ experimentId, traceId }: TraceDetailProps) {
         <StateBadge state={trace.state} />
         <span>{formatTimestamp(trace.request_time_ms)}</span>
         <span>Took {formatDuration(trace.execution_duration_ms)}</span>
+        {turnLabel && <span className="ml-auto font-medium text-slate-700 dark:text-slate-200">{turnLabel}</span>}
       </div>
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
         <IOPanel title="Input" value={trace.request} defaultRole="user" />

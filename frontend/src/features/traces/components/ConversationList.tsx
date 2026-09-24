@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import type { Conversation } from '@/api/types'
+import type { Conversation, TraceSummary } from '@/api/types'
 import { ErrorMessage } from '@/components/ui/ErrorMessage'
+import { ReviewMarker } from '@/features/review/components/ReviewMarker'
 
-import { useConversationList } from '../hooks/useConversationList'
+import type { useConversationList } from '../hooks/useConversationList'
 import { formatTimestamp } from '../lib/format'
 import { StateBadge } from './StateBadge'
 
 interface ConversationListProps {
-  experimentId: string
+  // The page loads the list (it also needs it to move between turns) and passes it in.
+  list: ReturnType<typeof useConversationList>
   selectedId: string | null
   onSelect: (traceId: string) => void
 }
@@ -16,22 +18,35 @@ interface ConversationListProps {
 const conversationKey = (c: Conversation) => c.session_id ?? c.traces[0].trace_id
 
 // Left-hand list: conversations with the latest activity first. Each one opens
-// to show its turns (traces), first turn on top.
-export function ConversationList({ experimentId, selectedId, onSelect }: ConversationListProps) {
-  const { data, error, isPending, isFetching, isPlaceholderData, loadMore } = useConversationList(experimentId)
+// to show its turns (traces), first turn on top, with a marker on reviewed turns.
+export function ConversationList({ list, selectedId, onSelect }: ConversationListProps) {
+  const { data, error, isPending, isFetching, isPlaceholderData, loadMore } = list
   // Which conversations are expanded. `null` = the user hasn't toggled anything
   // yet, in which case only the most recent conversation is open.
   const [openKeys, setOpenKeys] = useState<Set<string> | null>(null)
 
+  const conversations = data?.conversations ?? []
+  const open = openKeys ?? new Set(conversations[0] ? [conversationKey(conversations[0])] : [])
+
+  // When the selection moves into another conversation (keyboard navigation, or
+  // going to the next unreviewed turn), open it. This adjusts state during render,
+  // React's recommended pattern for reacting to a changed prop; it runs once per
+  // change, so the conversation can still be collapsed by hand afterwards.
+  const selectedConversation = conversations.find((c) => c.traces.some((t) => t.trace_id === selectedId))
+  const selectedKey = selectedConversation ? conversationKey(selectedConversation) : null
+  const [openedFor, setOpenedFor] = useState<string | null>(null)
+  if (selectedKey !== openedFor) {
+    setOpenedFor(selectedKey)
+    if (selectedKey !== null && !open.has(selectedKey)) setOpenKeys(new Set(open).add(selectedKey))
+  }
+
   if (isPending) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Loading conversations…</p>
   if (error) return <div className="p-4"><ErrorMessage title="Could not load conversations" error={error} /></div>
 
-  const { conversations, has_more } = data
   if (conversations.length === 0) {
     return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">This experiment has no traces yet.</p>
   }
 
-  const open = openKeys ?? new Set([conversationKey(conversations[0])])
   const toggle = (key: string) => {
     const next = new Set(open)
     if (next.has(key)) next.delete(key)
@@ -56,7 +71,7 @@ export function ConversationList({ experimentId, selectedId, onSelect }: Convers
           )
         })}
       </ul>
-      {has_more && (
+      {data.has_more && (
         <div className="p-3">
           <button
             type="button"
@@ -83,6 +98,8 @@ interface ConversationItemProps {
 function ConversationItem({ conversation, isOpen, onToggle, selectedId, onSelect }: ConversationItemProps) {
   const { traces } = conversation
   const turns = traces.length === 1 ? '1 turn' : `${traces.length} turns`
+  const reviewed = traces.filter((t) => t.review !== null).length
+  const issues = traces.filter((t) => t.review?.verdict === 'issue').length
 
   return (
     <li>
@@ -106,7 +123,16 @@ function ConversationItem({ conversation, isOpen, onToggle, selectedId, onSelect
             {traces[0].request_preview ?? '(no input)'}
           </span>
           <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-            {formatTimestamp(conversation.latest_request_time_ms)} · {turns}
+            {formatTimestamp(conversation.latest_request_time_ms)} · {turns} ·{' '}
+            <span className={reviewed === traces.length ? 'text-emerald-600 dark:text-emerald-400' : ''}>
+              {reviewed}/{traces.length} reviewed
+            </span>
+            {issues > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {' '}
+                · ⚑ {issues}
+              </span>
+            )}
           </span>
         </span>
       </button>
@@ -114,33 +140,70 @@ function ConversationItem({ conversation, isOpen, onToggle, selectedId, onSelect
       {isOpen && (
         <ol className="pb-2">
           {traces.map((trace, i) => (
-            <li key={trace.trace_id}>
-              <button
-                type="button"
-                onClick={() => onSelect(trace.trace_id)}
-                aria-current={trace.trace_id === selectedId}
-                className="flex w-full gap-3 py-2 pl-9 pr-4 text-left hover:bg-slate-50 aria-[current=true]:bg-indigo-50 dark:hover:bg-slate-800/60 dark:aria-[current=true]:bg-indigo-950/60"
-              >
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {i + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{formatTimestamp(trace.request_time_ms)}</span>
-                    <StateBadge state={trace.state} />
-                  </span>
-                  <span className="mt-0.5 line-clamp-2 text-sm text-slate-900 dark:text-slate-100">
-                    {trace.request_preview ?? '(no input)'}
-                  </span>
-                  <span className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
-                    {trace.response_preview ?? '(no output)'}
-                  </span>
-                </span>
-              </button>
-            </li>
+            <TurnItem
+              key={trace.trace_id}
+              trace={trace}
+              number={i + 1}
+              isSelected={trace.trace_id === selectedId}
+              onSelect={onSelect}
+            />
           ))}
         </ol>
       )}
+    </li>
+  )
+}
+
+const NUMBER_STYLES = {
+  none: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+  pass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  issue: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+}
+
+interface TurnItemProps {
+  trace: TraceSummary
+  number: number
+  isSelected: boolean
+  onSelect: (traceId: string) => void
+}
+
+function TurnItem({ trace, number, isSelected, onSelect }: TurnItemProps) {
+  const ref = useRef<HTMLButtonElement>(null)
+  // Keep the selected turn in view when it's chosen from the keyboard.
+  useEffect(() => {
+    if (isSelected) ref.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [isSelected])
+
+  return (
+    <li>
+      <button
+        ref={ref}
+        type="button"
+        onClick={() => onSelect(trace.trace_id)}
+        aria-current={isSelected}
+        className="flex w-full gap-3 py-2 pl-9 pr-4 text-left hover:bg-slate-50 aria-[current=true]:bg-indigo-50 dark:hover:bg-slate-800/60 dark:aria-[current=true]:bg-indigo-950/60"
+      >
+        <span
+          className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium ${NUMBER_STYLES[trace.review?.verdict ?? 'none']}`}
+        >
+          {number}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {formatTimestamp(trace.request_time_ms)}
+              <ReviewMarker review={trace.review} />
+            </span>
+            <StateBadge state={trace.state} />
+          </span>
+          <span className="mt-0.5 line-clamp-2 text-sm text-slate-900 dark:text-slate-100">
+            {trace.request_preview ?? '(no input)'}
+          </span>
+          <span className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+            {trace.response_preview ?? '(no output)'}
+          </span>
+        </span>
+      </button>
     </li>
   )
 }
