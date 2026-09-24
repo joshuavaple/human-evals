@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import traces
+from app.api.routes import conversations, traces
 from app.config import Settings, get_settings
 from app.repositories.mlflow_repo import ExperimentNotFoundError
 
@@ -18,6 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(traces.router, prefix="/api")
+    app.include_router(conversations.router, prefix="/api")
 
     @app.exception_handler(ExperimentNotFoundError)
     def experiment_not_found(_: Request, exc: ExperimentNotFoundError) -> JSONResponse:

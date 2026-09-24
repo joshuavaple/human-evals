@@ -27,6 +27,17 @@ Open **http://localhost:5173** in your browser.
 
 Both servers reload automatically when you save a file. Stop each with `Ctrl+C`.
 
+## How traces are organised
+
+The left-hand list groups traces into **conversations**. A conversation is all the traces that share an MLflow conversation ID (`mlflow.trace.session`), so one conversation is one chat with the agent.
+
+- **Conversations:** the one with the most recent activity is on top. The newest opens automatically, and you click any other to expand it.
+- **Turns:** inside a conversation, the traces are the turns, oldest first, so turn 1 is on top.
+- **No conversation ID:** a trace logged without one shows up as its own one-turn conversation.
+- **Load more:** fetches 20 more conversations.
+
+The backend does the grouping (`GET /api/conversations`). The frontend just displays what it gets.
+
 ## How the frontend talks to the backend
 
 ```
@@ -63,19 +74,19 @@ frontend/
 ├── package.json               # Dependencies and the npm scripts above
 └── src/
     ├── main.tsx               # Entry point: starts React and TanStack Query
-    ├── App.tsx                # Page layout: header, trace list, trace detail
+    ├── App.tsx                # Page layout: header, conversation list, trace detail
     ├── index.css              # Loads Tailwind
     │
     ├── api/                   # ── Talking to the backend (nothing else does) ──
     │   ├── schema.d.ts        # GENERATED from the backend. Don't edit; run `npm run gen:api`
     │   ├── types.ts           # Short names for generated types (TraceSummary, TraceDetail…)
     │   ├── client.ts          # Typed HTTP client + ApiError
-    │   └── traces.ts          # One function per endpoint: fetchTraces, fetchTrace
+    │   └── traces.ts          # One function per endpoint: fetchConversations, fetchTrace
     │
     ├── features/              # ── One folder per feature of the app ──
     │   ├── traces/
-    │   │   ├── hooks/         # Data loading for components (useTraceList, useTrace)
-    │   │   ├── components/    # UI for this feature (TraceList, TraceDetail, IOPanel…)
+    │   │   ├── hooks/         # Data loading for components (useConversationList, useTrace)
+    │   │   ├── components/    # UI for this feature (ConversationList, TraceDetail, IOPanel…)
     │   │   └── lib/           # Plain logic, no UI (conversation parsing, formatting)
     │   └── theme/             # Light/dark mode switch (top-right button)
     │
@@ -96,13 +107,13 @@ components  ──use──►  hooks  ──call──►  api/  ──HTTP─�
 - **`api/`** knows URLs and HTTP. It doesn't know about React.
 - **`hooks/`** wrap the `api/` functions with TanStack Query, which handles loading states, errors, caching and paging. Components get `{ data, error, isPending }` back.
 - **`components/`** only render UI. They get data from hooks and never call `fetch` themselves.
-- **`lib/`** holds logic with no UI. `conversation.ts` turns the different agent formats (OpenAI chat, MLflow ResponsesAgent, LangChain…) into a common list of messages. If a format isn't recognised, the UI falls back to raw JSON.
+- **`lib/`** holds logic with no UI. `messages.ts` turns the different agent formats (OpenAI chat, MLflow ResponsesAgent, LangChain…) into a common list of messages. If a format isn't recognised, the UI falls back to raw JSON.
 
 ## Common tasks
 
 **The backend API changed (new field or endpoint).** Start the backend, then run `npm run gen:api`. TypeScript will point out (`npm run typecheck`) every place that needs updating. For a new endpoint, add a function in `src/api/`, then a hook in the feature's `hooks/` folder.
 
-**A trace shows raw JSON instead of a conversation.** Its format isn't recognised yet. Add it to `src/features/traces/lib/conversation.ts`, with a test in `conversation.test.ts`.
+**A trace shows raw JSON instead of chat messages.** Its format isn't recognised yet. Add it to `src/features/traces/lib/messages.ts`, with a test in `messages.test.ts`.
 
 **Styling for dark mode.** Dark mode works by adding `class="dark"` to the page's `<html>` tag. Every colour class needs a `dark:` partner, which only applies in dark mode. For example, `bg-white dark:bg-slate-900` or `text-slate-500 dark:text-slate-400`. Copy the pairs already used in existing components so the colours stay consistent. To check, click the sun/moon button at the top right.
 

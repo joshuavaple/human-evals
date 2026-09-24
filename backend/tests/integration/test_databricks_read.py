@@ -102,3 +102,26 @@ def test_api_end_to_end(profile, experiment, first_trace_id):
     detail = client.get(f"/api/traces/{first_trace_id}")
     assert detail.status_code == 200
     assert detail.json()["trace_id"] == first_trace_id
+
+
+def test_list_conversations_ordering(repo):
+    page = repo.list_conversations(max_results=5)
+    if not page.conversations:
+        pytest.skip("experiment has no traces")
+    latest = [c.latest_request_time_ms for c in page.conversations]
+    assert latest == sorted(latest, reverse=True)
+    for conversation in page.conversations:
+        times = [t.request_time_ms for t in conversation.traces]
+        assert times == sorted(times)
+        assert conversation.latest_request_time_ms == times[-1]
+        assert {t.session_id for t in conversation.traces} == {conversation.session_id}
+
+
+def test_list_conversations_returns_complete_conversations(repo):
+    # Asking for 1 conversation stops the scan early, so its older turns must come from
+    # the per-session fetch; the result should match a larger request.
+    one = repo.list_conversations(max_results=1)
+    if not one.conversations:
+        pytest.skip("experiment has no traces")
+    many = repo.list_conversations(max_results=5)
+    assert one.conversations[0] == many.conversations[0]

@@ -1,7 +1,7 @@
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import type { Message, Role } from '../lib/conversation'
+import type { Message, Role } from '../lib/messages'
 
 const ROLE_STYLES: Record<Role, { label: string; bubble: string }> = {
   user: { label: 'User', bubble: 'bg-slate-100 dark:bg-slate-800' },
@@ -10,7 +10,7 @@ const ROLE_STYLES: Record<Role, { label: string; bubble: string }> = {
   tool: { label: 'Tool result', bubble: 'border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900' },
 }
 
-export function ConversationView({ messages }: { messages: Message[] }) {
+export function MessageList({ messages }: { messages: Message[] }) {
   return (
     <div className="space-y-3">
       {messages.map((message, i) => {
