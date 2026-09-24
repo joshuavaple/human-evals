@@ -51,6 +51,22 @@ The left-hand list groups traces into **conversations**. A conversation is all t
 
 The backend does the grouping (`GET /api/experiments/<id>/conversations`). The frontend just displays what it gets.
 
+## Reviewing a turn
+
+Pick a turn in the sidebar (or press **J**). Its input and output appear side by side, with the **review bar** fixed underneath:
+
+- **✓ Pass** (key **P**): the output is acceptable. One click, saved immediately. On a turn that's already passed, P just moves on (it won't wipe out a note).
+- **Pass with note**: the lightbulb on the right of the Pass button (key **N**). Opens a text box for what's good about the output. The note is optional; saving it empty is a plain pass.
+- **⚑ Issue** (key **I**): opens the same text box: describe what's wrong, then **Save issue** (**Ctrl/⌘+Enter**) or **Cancel** (**Esc**). An issue can't be saved empty.
+- After saving, the app jumps to the **next unreviewed turn**. Switch this off with the checkbox in the bar; the choice is remembered.
+- A "Saved as … · Undo" message appears for a few seconds. **Undo** puts back what the turn had before and takes you back to it.
+- **J / K** move to the next or previous turn. Shortcuts are ignored while you're typing.
+- Half-written issue text is kept per turn, so clicking another turn doesn't lose it.
+
+The sidebar shows progress: each reviewed turn gets a coloured number and a ✓ (with a small lightbulb if the pass has a note) or ⚑; hover it to read the note or issue, and each conversation shows "2/5 reviewed" (plus ⚑ and a count if any turn has an issue). Opening a reviewed turn shows your verdict in the bar, and you can change it at any time.
+
+Reviews are saved in MLflow as feedback on the trace, under your Databricks login (the backend decides who you are). Each reviewer has at most one verdict per trace: a new one replaces your old one.
+
 ## How the frontend talks to the backend
 
 ```
@@ -107,10 +123,11 @@ frontend/
     │   │   ├── hooks/         # Data loading for components (useConversationList, useTrace)
     │   │   ├── components/    # UI for this feature (ConversationList, TraceDetail, IOPanel…)
     │   │   └── lib/           # Plain logic, no UI (conversation parsing, formatting)
+    │   ├── review/            # Review bar, sidebar markers, keyboard shortcuts (lib/turns.ts: next/previous turn)
     │   └── theme/             # Light/dark mode switch (top-right button)
     │
     ├── components/ui/         # Small reusable pieces not tied to a feature (Badge, ErrorMessage)
-    └── test/setup.ts          # Test setup (adds matchers like toBeInTheDocument)
+    └── test/                  # Test setup (matchers, cleanup) and renderApp() for rendering the app at a URL
 ```
 
 Tests live next to the file they test, named `*.test.ts(x)`.
@@ -138,7 +155,7 @@ pages  ──use──►  components  ──use──►  hooks  ──call─�
 
 **Styling for dark mode.** Dark mode works by adding `class="dark"` to the page's `<html>` tag. Every colour class needs a `dark:` partner, which only applies in dark mode. For example, `bg-white dark:bg-slate-900` or `text-slate-500 dark:text-slate-400`. Copy the pairs already used in existing components so the colours stay consistent. To check, click the sun/moon button at the top right.
 
-**Adding a new feature** (e.g. reviewing): create `src/features/<name>/` with the same `hooks/`, `components/` and `lib/` folders.
+**Adding a new feature**: create `src/features/<name>/` with the same `hooks/`, `components/` and `lib/` folders.
 
 ## Troubleshooting
 
