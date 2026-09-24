@@ -1,9 +1,12 @@
-"""In-memory stand-in for MlflowClient, covering only the calls the repository makes."""
+"""In-memory stand-in for MlflowClient and TracingClient, covering only the calls the
+repository makes."""
 
+import itertools
 import json
 import re
 
 from mlflow.entities import (
+    Assessment,
     Experiment,
     ExperimentTag,
     Span,
@@ -90,6 +93,8 @@ class FakeMlflowClient:
         self._traces = {t.info.trace_id: t for t in traces}
         self.get_experiment_calls = 0
         self.search_calls = 0
+        self.fail_deletes = False  # simulate a delete_assessment failure
+        self._clock = itertools.count(1)
 
     def search_experiments(self, *, filter_string, max_results, order_by, page_token):
         # Only the folder filter the repository uses is supported. Like Databricks'
@@ -131,6 +136,20 @@ class FakeMlflowClient:
             ]
         matching.sort(key=lambda t: t.info.request_time, reverse=order_by[0].endswith("DESC"))
         return _page(matching, max_results, page_token)
+
+    def log_assessment(self, trace_id: str, assessment: Assessment) -> Assessment:
+        now = next(self._clock)
+        assessment.assessment_id = f"a-{now}"
+        assessment.trace_id = trace_id
+        assessment.create_time_ms = assessment.last_update_time_ms = now
+        self._traces[trace_id].info.assessments.append(assessment)
+        return assessment
+
+    def delete_assessment(self, trace_id: str, assessment_id: str) -> None:
+        if self.fail_deletes:
+            raise MlflowException("delete failed")
+        info = self._traces[trace_id].info
+        info.assessments = [a for a in info.assessments if a.assessment_id != assessment_id]
 
     def get_trace(self, trace_id: str, display: bool = True) -> Trace:
         if trace_id not in self._traces:

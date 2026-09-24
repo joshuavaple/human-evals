@@ -2,6 +2,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.reviews import Review
+
 
 class TraceSummary(BaseModel):
     """A trace as shown in the review queue. Previews are truncated by MLflow."""
@@ -13,6 +15,7 @@ class TraceSummary(BaseModel):
     execution_duration_ms: int | None
     request_preview: str | None
     response_preview: str | None
+    review: Review | None  # the current reviewer's verdict, if they gave one
 
 
 class TracePage(BaseModel):

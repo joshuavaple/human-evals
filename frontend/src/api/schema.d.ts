@@ -89,6 +89,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/experiments/{experiment_id}/traces/{trace_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Review
+         * @description Saves the logged-in user's verdict on a trace, replacing their earlier one.
+         */
+        put: operations["save_review_api_experiments__experiment_id__traces__trace_id__review_put"];
+        post?: never;
+        /**
+         * Delete Review
+         * @description Removes the logged-in user's verdict (used by "Undo"). Succeeds if there is none.
+         */
+        delete: operations["delete_review_api_experiments__experiment_id__traces__trace_id__review_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -166,6 +190,33 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * Review
+         * @description One reviewer's verdict on a trace, stored in MLflow as trace feedback.
+         */
+        Review: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "pass" | "issue";
+            /** Comment */
+            comment: string | null;
+            /** Reviewer */
+            reviewer: string;
+            /** Updated Time Ms */
+            updated_time_ms: number;
+        };
+        /** ReviewInput */
+        ReviewInput: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "pass" | "issue";
+            /** Comment */
+            comment?: string | null;
+        };
+        /**
          * TraceDetail
          * @description A single trace with full inputs and outputs of the root span.
          */
@@ -184,6 +235,7 @@ export interface components {
             request_preview: string | null;
             /** Response Preview */
             response_preview: string | null;
+            review: components["schemas"]["Review"] | null;
             /** Request */
             request: unknown;
             /** Response */
@@ -215,6 +267,7 @@ export interface components {
             request_preview: string | null;
             /** Response Preview */
             response_preview: string | null;
+            review: components["schemas"]["Review"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -376,6 +429,72 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TraceDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_review_api_experiments__experiment_id__traces__trace_id__review_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_review_api_experiments__experiment_id__traces__trace_id__review_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

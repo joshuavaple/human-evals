@@ -1,13 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as experimentsApi from '@/api/experiments'
 import * as api from '@/api/traces'
 import type { TraceSummary } from '@/api/types'
-import App from './App'
+import { renderApp } from '@/test/renderApp'
 
 // Replace the real backend calls with fakes.
 vi.mock('@/api/experiments')
@@ -44,6 +42,7 @@ function trace(id: string, sessionId: string, time: number, question: string): T
     execution_duration_ms: 1200,
     request_preview: question,
     response_preview: `answer to ${question}`,
+    review: null,
   }
 }
 
@@ -63,18 +62,6 @@ const conversations = [
 
 // The list of turns shown under an expanded conversation header.
 const turnList = (header: HTMLElement) => within(header.closest('li')!).getByRole('list')
-
-// Renders the whole app as if the browser were at `path`.
-function renderApp(path = '/experiments/1') {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  )
-}
 
 beforeEach(() => {
   vi.mocked(experimentsApi.fetchExperiments).mockResolvedValue({ folder: '/Shared', experiments })

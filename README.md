@@ -2,7 +2,7 @@
 
 A simple UI for human review and error analysis of AI responses.
 
-You pick an MLflow experiment on Databricks (from the `/Shared` folder by default), and it shows that experiment's traces (LLM inputs and outputs) to a human reviewer as readable conversations. Saving reviews (pass, or a written issue) back to MLflow as feedback comes next.
+You pick an MLflow experiment on Databricks (from the `/Shared` folder by default), and it shows that experiment's traces (LLM inputs and outputs) to a human reviewer as readable conversations. The reviewer marks each turn **Pass**, or reports an **Issue** with a written description, and the verdict is saved back to MLflow as feedback on the trace.
 
 | Part | Tech | Docs |
 |---|---|---|

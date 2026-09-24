@@ -7,17 +7,20 @@ from app.repositories.mlflow_repo import (
     TraceNotFoundError,
     databricks_tracking_uri,
 )
+from app.schemas import ReviewInput
 from tests.unit.fakes import FakeMlflowClient, make_trace
 
 FOLDER = "/Shared"
 EXP_ID = "1"
+ME = "me@example.com"
 
 
 def make_repo(
     traces=None, experiments=None, **fake_kwargs
 ) -> tuple[MlflowRepository, FakeMlflowClient]:
     client = FakeMlflowClient(experiments or {"/Shared/agent": EXP_ID}, traces or [], **fake_kwargs)
-    return MlflowRepository("my-profile", FOLDER, client=client), client
+    repo = MlflowRepository("my-profile", FOLDER, client=client, tracing_client=client, reviewer=ME)
+    return repo, client
 
 
 def test_tracking_uri_targets_databricks_profile():
@@ -55,7 +58,9 @@ def test_list_experiments_pages_through_results(monkeypatch):
 
 def test_folder_trailing_slash_is_ignored():
     client = FakeMlflowClient({"/Shared/agent": "1"}, [])
-    repo = MlflowRepository("my-profile", "/Shared/", client=client)
+    repo = MlflowRepository(
+        "my-profile", "/Shared/", client=client, tracing_client=client, reviewer=ME
+    )
     assert repo.list_experiments().folder == "/Shared"
     assert [e.path for e in repo.list_experiments().experiments] == ["/Shared/agent"]
 
@@ -231,3 +236,124 @@ def test_list_conversations_on_empty_experiment():
     page = repo.list_conversations(EXP_ID)
     assert page.conversations == []
     assert page.has_more is False
+
+
+# --- Reviews ---
+
+
+def _review_feedback(client, trace_id, value, reviewer=ME, name="human_review", rationale=None):
+    from mlflow.entities import AssessmentSource, Feedback
+
+    source = AssessmentSource(source_type="HUMAN", source_id=reviewer)
+    return client.log_assessment(
+        trace_id, Feedback(name=name, value=value, rationale=rationale, source=source)
+    )
+
+
+def _feedback_on(client, trace_id):
+    return [
+        (a.name, a.value, a.rationale, a.source.source_type, a.source.source_id)
+        for a in client.get_trace(trace_id).info.assessments
+    ]
+
+
+def test_unreviewed_trace_has_no_review():
+    repo, _ = make_repo(traces=[make_trace("t1")])
+    assert repo.get_trace(EXP_ID, "t1").review is None
+
+
+def test_save_pass_is_stored_as_human_feedback():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    review = repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass"))
+    assert (review.verdict, review.comment, review.reviewer) == ("pass", None, ME)
+    assert _feedback_on(client, "t1") == [("human_review", True, None, "HUMAN", ME)]
+    assert repo.get_trace(EXP_ID, "t1").review == review
+
+
+def test_save_issue_stores_comment_as_rationale():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="issue", comment="  Made up a tool result "))
+    assert _feedback_on(client, "t1") == [
+        ("human_review", False, "Made up a tool result", "HUMAN", ME)
+    ]
+
+
+def test_saving_again_replaces_own_review_and_keeps_others():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    _review_feedback(client, "t1", True, reviewer="colleague@example.com")
+    _review_feedback(client, "t1", 0.8, name="relevance")  # e.g. a judge score
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="issue", comment="wrong"))
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass"))
+    assert _feedback_on(client, "t1") == [
+        ("human_review", True, None, "HUMAN", "colleague@example.com"),
+        ("relevance", 0.8, None, "HUMAN", ME),
+        ("human_review", True, None, "HUMAN", ME),
+    ]
+    assert repo.get_trace(EXP_ID, "t1").review.verdict == "pass"
+
+
+def test_failed_delete_keeps_the_new_verdict_visible():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="issue", comment="wrong"))
+    client.fail_deletes = True
+    with pytest.raises(Exception, match="delete failed"):
+        repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass"))
+    # Both verdicts are stored; the newest one is what the reviewer sees.
+    assert repo.get_trace(EXP_ID, "t1").review.verdict == "pass"
+
+
+def test_delete_review_removes_only_own_review():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    _review_feedback(client, "t1", False, reviewer="colleague@example.com", rationale="bad")
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass"))
+    repo.delete_review(EXP_ID, "t1")
+    assert repo.get_trace(EXP_ID, "t1").review is None
+    assert _feedback_on(client, "t1") == [
+        ("human_review", False, "bad", "HUMAN", "colleague@example.com")
+    ]
+    repo.delete_review(EXP_ID, "t1")  # nothing to delete is fine
+
+
+def test_reviews_show_up_in_conversations():
+    repo, _ = make_repo(
+        traces=[
+            make_trace("a1", request_time=1, session_id="A"),
+            make_trace("a2", request_time=2, session_id="A"),
+        ]
+    )
+    repo.save_review(EXP_ID, "a2", ReviewInput(verdict="pass"))
+    turns = repo.list_conversations(EXP_ID).conversations[0].traces
+    assert [(t.trace_id, t.review and t.review.verdict) for t in turns] == [
+        ("a1", None),
+        ("a2", "pass"),
+    ]
+
+
+def test_cannot_review_trace_in_another_experiment():
+    repo, _ = make_repo(traces=[make_trace("foreign", experiment_id="2")])
+    with pytest.raises(TraceNotFoundError):
+        repo.save_review(EXP_ID, "foreign", ReviewInput(verdict="pass"))
+
+
+@pytest.mark.parametrize("comment", [None, "", "   "])
+def test_issue_needs_a_comment(comment):
+    with pytest.raises(ValueError, match="Describe the issue"):
+        ReviewInput(verdict="issue", comment=comment)
+
+
+def test_pass_keeps_an_optional_note():
+    assert (
+        ReviewInput(verdict="pass", comment="  Clear and concise ").comment == "Clear and concise"
+    )
+    assert ReviewInput(verdict="pass", comment="   ").comment is None
+    assert ReviewInput(verdict="pass").comment is None
+
+
+def test_pass_with_note_is_stored_as_rationale_and_cleared_by_plain_pass():
+    repo, client = make_repo(traces=[make_trace("t1")])
+    review = repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass", comment="Asked first"))
+    assert (review.verdict, review.comment) == ("pass", "Asked first")
+    assert _feedback_on(client, "t1") == [("human_review", True, "Asked first", "HUMAN", ME)]
+
+    repo.save_review(EXP_ID, "t1", ReviewInput(verdict="pass"))
+    assert _feedback_on(client, "t1") == [("human_review", True, None, "HUMAN", ME)]
