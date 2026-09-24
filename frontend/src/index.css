@@ -1,2 +1,11 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+
+/* `dark:` classes apply when <html> has class="dark" (set by the theme toggle),
+   instead of Tailwind's default of following the OS setting only. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark scrollbars and form controls in dark mode. */
+.dark {
+  color-scheme: dark;
+}
