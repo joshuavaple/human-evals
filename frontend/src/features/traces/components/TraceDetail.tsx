@@ -9,13 +9,13 @@ import { StateBadge } from './StateBadge'
 export function TraceDetail({ traceId }: { traceId: string }) {
   const { data: trace, error, isPending } = useTrace(traceId)
 
-  if (isPending) return <p className="text-sm text-slate-500">Loading trace…</p>
+  if (isPending) return <p className="text-sm text-slate-500 dark:text-slate-400">Loading trace…</p>
   if (error) return <ErrorMessage title="Could not load this trace" error={error} />
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
-        <code className="text-xs text-slate-500">{trace.trace_id}</code>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
+        <code className="text-xs text-slate-500 dark:text-slate-400">{trace.trace_id}</code>
         <StateBadge state={trace.state} />
         <span>{formatTimestamp(trace.request_time_ms)}</span>
         <span>Took {formatDuration(trace.execution_duration_ms)}</span>
