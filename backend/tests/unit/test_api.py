@@ -51,3 +51,17 @@ def test_misconfigured_experiment_is_500():
     response = client.get("/api/traces")
     assert response.status_code == 500
     assert EXPERIMENT in response.json()["detail"]
+
+
+def test_list_conversations():
+    client = make_client(
+        {EXPERIMENT: "1"},
+        [
+            make_trace("a1", request_time=1, session_id="A"),
+            make_trace("a2", request_time=2, session_id="A"),
+        ],
+    )
+    body = client.get("/api/conversations").json()
+    assert body["has_more"] is False
+    assert body["conversations"][0]["session_id"] == "A"
+    assert [t["trace_id"] for t in body["conversations"][0]["traces"]] == ["a1", "a2"]
