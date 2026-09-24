@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
-// Unmount rendered components after each test. Testing Library only does this
-// automatically when Vitest globals are enabled, which this project doesn't use.
-afterEach(cleanup)
+afterEach(() => {
+  // Unmount rendered components after each test. Testing Library only does this
+  // automatically when Vitest globals are enabled, which this project doesn't use.
+  cleanup()
+  // Forget calls made to mocked functions, so each test starts counting from zero.
+  vi.clearAllMocks()
+})
