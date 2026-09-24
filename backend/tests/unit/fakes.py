@@ -78,9 +78,9 @@ class FakeMlflowClient:
             return None
         return Experiment(self._experiments[name], name, "", "active")
 
-    def search_traces(self, *, experiment_ids, max_results, page_token, order_by, include_spans):
+    def search_traces(self, *, locations, max_results, page_token, order_by, include_spans):
         matching = sorted(
-            (t for t in self._traces.values() if t.info.experiment_id in experiment_ids),
+            (t for t in self._traces.values() if t.info.experiment_id in locations),
             key=lambda t: t.info.request_time,
             reverse=True,
         )
