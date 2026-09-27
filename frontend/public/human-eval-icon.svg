@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Human evaluation of AI outputs">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <clipPath id="badge"><circle cx="45" cy="45" r="11"/></clipPath>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)"/>
+
+  <!-- AI output, with the human's verdict stamped on it -->
+  <path d="M19 13H37A7 7 0 0 1 44 20V30A7 7 0 0 1 37 37H24L17 43L18 36.5A7 7 0 0 1 12 30V20A7 7 0 0 1 19 13Z" fill="#FFFFFF"/>
+  <path d="M24 18C24.6 22 26.4 24.4 30 25C26.4 25.6 24.6 28 24 32C23.4 28 21.6 25.6 18 25C21.6 24.4 23.4 22 24 18Z" fill="#6D4AE8"/>
+  <path d="M33 25L35.5 27.5L40 22.5" fill="none" stroke="#10B981" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Human evaluator badge -->
+  <circle cx="45" cy="45" r="11" fill="#10B981"/>
+  <g clip-path="url(#badge)" fill="#FFFFFF">
+    <circle cx="45" cy="41" r="4"/>
+    <path d="M36 58V53.5C36 49 40 46.5 45 46.5C50 46.5 54 49 54 53.5V58Z"/>
+  </g>
+  <circle cx="45" cy="45" r="11" fill="none" stroke="#7552F0" stroke-width="3"/>
+</svg>
